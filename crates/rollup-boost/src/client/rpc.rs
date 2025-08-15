@@ -404,7 +404,7 @@ macro_rules! define_rpc_args {
     };
 }
 
-define_rpc_args!((BuilderArgs, builder), (L2ClientArgs, l2));
+define_rpc_args!((BuilderArgs, builder), (GuarantorArgs, guarantor), (L2ClientArgs, l2));
 
 #[cfg(test)]
 pub mod tests {

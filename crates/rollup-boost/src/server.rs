@@ -643,13 +643,16 @@ pub mod tests {
         async fn new(
             l2_mock: Option<MockEngineServer>,
             builder_mock: Option<MockEngineServer>,
+            guarantor_mock: Option<MockEngineServer>,
         ) -> Self {
             let jwt_secret = JwtSecret::random();
 
             let l2_mock = l2_mock.unwrap_or(MockEngineServer::new());
             let builder_mock = builder_mock.unwrap_or(MockEngineServer::new());
+            let guarantor_mock = guarantor_mock.unwrap_or(MockEngineServer::new());
             let (l2_server, l2_server_addr) = spawn_server(l2_mock.clone()).await;
             let (builder_server, builder_server_addr) = spawn_server(builder_mock.clone()).await;
+            let (_, guarantor_server_addr) = spawn_server(guarantor_mock.clone()).await;
 
             let l2_auth_rpc = Uri::from_str(&format!("http://{l2_server_addr}")).unwrap();
             let l2_client =
@@ -665,6 +668,8 @@ pub mod tests {
                 )
                 .unwrap(),
             );
+
+            let guarantor_auth_rpc = Uri::from_str(&format!("http://{guarantor_server_addr}")).unwrap();
 
             let (probe_layer, probes) = ProbeLayer::new();
             let execution_mode = Arc::new(Mutex::new(ExecutionMode::Enabled));
@@ -687,6 +692,9 @@ pub mod tests {
                         jwt_secret,
                         1,
                         builder_auth_rpc,
+                        jwt_secret,
+                        1,
+                        guarantor_auth_rpc,
                         jwt_secret,
                         1,
                     ));
@@ -738,7 +746,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn engine_success() {
-        let test_harness = TestHarness::new(None, None).await;
+        let test_harness = TestHarness::new(None, None, None).await;
 
         // Since no blocks have been created, the service should be unavailable
         let health = test_harness.get("healthz").await;
@@ -850,7 +858,7 @@ pub mod tests {
             payload.block_value = U256::from(10);
             payload
         });
-        let test_harness = TestHarness::new(Some(l2_mock), None).await;
+        let test_harness = TestHarness::new(Some(l2_mock), None, None).await;
 
         // test get_payload_v3 return l2 payload if builder payload is invalid
         let get_payload_response = test_harness
@@ -923,7 +931,7 @@ pub mod tests {
         builder_mock.override_payload_id = Some(same_id);
 
         let test_harness =
-            TestHarness::new(Some(l2_mock.clone()), Some(builder_mock.clone())).await;
+            TestHarness::new(Some(l2_mock.clone()), Some(builder_mock.clone()), None).await;
 
         // Test FCU call
         let fcu = ForkchoiceState {
@@ -994,7 +1002,7 @@ pub mod tests {
                     payload
                 });
 
-        let test_harness = TestHarness::new(Some(l2_mock), Some(builder_mock)).await;
+        let test_harness = TestHarness::new(Some(l2_mock), Some(builder_mock), None).await;
         let fcu = ForkchoiceState {
             head_block_hash: FixedBytes::random(),
             safe_block_hash: FixedBytes::random(),
@@ -1041,7 +1049,7 @@ pub mod tests {
             None::<String>,
         ));
 
-        let test_harness = TestHarness::new(Some(l2_mock), None).await;
+        let test_harness = TestHarness::new(Some(l2_mock), None, None).await;
 
         let fcu = ForkchoiceState {
             head_block_hash: FixedBytes::random(),

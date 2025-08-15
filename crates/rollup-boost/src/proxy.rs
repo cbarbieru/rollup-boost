@@ -31,6 +31,9 @@ pub struct ProxyLayer {
     builder_auth_rpc: Uri,
     builder_auth_secret: JwtSecret,
     builder_timeout: u64,
+    guarantor_auth_rpc: Uri,
+    guarantor_auth_secret: JwtSecret,
+    guarantor_timeout: u64,
 }
 
 impl ProxyLayer {
@@ -41,6 +44,9 @@ impl ProxyLayer {
         builder_auth_rpc: Uri,
         builder_auth_secret: JwtSecret,
         builder_timeout: u64,
+        guarantor_auth_rpc: Uri,
+        guarantor_auth_secret: JwtSecret,
+        guarantor_timeout: u64,
     ) -> Self {
         ProxyLayer {
             l2_auth_rpc,
@@ -49,6 +55,9 @@ impl ProxyLayer {
             builder_auth_rpc,
             builder_auth_secret,
             builder_timeout,
+            guarantor_auth_rpc,
+            guarantor_auth_secret,
+            guarantor_timeout
         }
     }
 }
@@ -71,10 +80,18 @@ impl<S> Layer<S> for ProxyLayer {
             self.builder_timeout,
         );
 
+        let guarantor_client = HttpClient::new(
+            self.guarantor_auth_rpc.clone(),
+            self.guarantor_auth_secret,
+            PayloadSource::Builder,
+            self.guarantor_timeout,
+        );
+
         ProxyService {
             inner,
             l2_client,
             builder_client,
+            guarantor_client,
         }
     }
 }
@@ -84,6 +101,7 @@ pub struct ProxyService<S> {
     inner: S,
     l2_client: HttpClient,
     builder_client: HttpClient,
+    guarantor_client: HttpClient,
 }
 
 // Consider using `RpcServiceT` when https://github.com/paritytech/jsonrpsee/pull/1521 is merged
@@ -140,11 +158,29 @@ where
                 let method_clone = method.clone();
                 let buffered_clone = buffered.clone();
                 let mut builder_client = service.builder_client.clone();
+                
+                let g_method_clone = method.clone();
+                let g_buffered_clone = buffered.clone();
+                let mut guarantor_client = service.guarantor_client.clone();
+
+                tracing::info!("method = {:?}", &g_method_clone);
 
                 // Fire and forget the builder request
                 tokio::spawn(async move {
                     let _ = builder_client.forward(buffered_clone, method_clone).await;
+
                 });
+                if "eth_sendRawTransaction" == g_method_clone {
+                    tokio::spawn(async move {
+                        let body_bytes = g_buffered_clone.body().clone();
+                        tracing::info!("request = {:?}", &body_bytes);
+                        
+                        let resp = guarantor_client.forward(g_buffered_clone, g_method_clone).await;
+                        
+                        tracing::info!("response = {:?}", &resp);
+
+                    });
+                }
             }
 
             // Return the response from the L2 client
@@ -211,12 +247,16 @@ mod tests {
     impl TestHarness {
         async fn new() -> eyre::Result<Self> {
             let builder = MockHttpServer::serve().await?;
+            let guarantor = MockHttpServer::serve().await?;
             let l2 = MockHttpServer::serve().await?;
             let middleware = tower::ServiceBuilder::new().layer(ProxyLayer::new(
                 format!("http://{}:{}", l2.addr.ip(), l2.addr.port()).parse::<Uri>()?,
                 JwtSecret::random(),
                 1,
                 format!("http://{}:{}", builder.addr.ip(), builder.addr.port()).parse::<Uri>()?,
+                JwtSecret::random(),
+                1,
+                format!("http://{}:{}", guarantor.addr.ip(), guarantor.addr.port()).parse::<Uri>()?,
                 JwtSecret::random(),
                 1,
             ));
@@ -480,7 +520,7 @@ mod tests {
         .unwrap();
 
         let (probe_layer, _) = ProbeLayer::new();
-        let proxy_layer = ProxyLayer::new(l2_auth_uri.clone(), jwt, 1, l2_auth_uri, jwt, 1);
+        let proxy_layer = ProxyLayer::new(l2_auth_uri.clone(), jwt, 1, l2_auth_uri.clone(), jwt, 1, l2_auth_uri.clone(), jwt, 1);
 
         // Create a layered server
         let server = ServerBuilder::default()

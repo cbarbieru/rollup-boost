@@ -15,7 +15,7 @@ use tracing::{Level, info};
 use crate::{
     BlockSelectionPolicy, DebugClient, Flashblocks, FlashblocksArgs, ProxyLayer, RollupBoostServer,
     RpcClient,
-    client::rpc::{BuilderArgs, L2ClientArgs},
+    client::rpc::{BuilderArgs, GuarantorArgs, L2ClientArgs},
     debug_api::ExecutionMode,
     get_version, init_metrics,
     payload::PayloadSource,
@@ -30,6 +30,9 @@ pub struct Args {
 
     #[clap(flatten)]
     pub builder: BuilderArgs,
+
+    #[clap(flatten)]
+    pub guarantor: GuarantorArgs,
 
     #[clap(flatten)]
     pub l2_client: L2ClientArgs,
@@ -165,6 +168,15 @@ impl Args {
             PayloadSource::Builder,
         )?;
 
+        let guarantor_args = self.guarantor;
+        let guarantor_auth_jwt = if let Some(secret) = guarantor_args.guarantor_jwt_token {
+            secret
+        } else if let Some(path) = guarantor_args.guarantor_jwt_path.as_ref() {
+            JwtSecret::from_file(path)?
+        } else {
+            bail!("Missing Guarantor JWT secret");
+        };
+
         let (probe_layer, probes) = ProbeLayer::new();
         let execution_mode = Arc::new(Mutex::new(self.execution_mode));
 
@@ -226,6 +238,9 @@ impl Args {
                     builder_args.builder_url,
                     builder_auth_jwt,
                     builder_args.builder_timeout,
+                    guarantor_args.guarantor_url,
+                    guarantor_auth_jwt,
+                    guarantor_args.guarantor_timeout
                 ));
 
         // NOTE: clean this up
