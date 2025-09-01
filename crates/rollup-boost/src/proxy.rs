@@ -152,37 +152,6 @@ where
                     .map_err(|e| e.into());
             }
 
-            if FORWARD_REQUESTS.contains(&method.as_str()) {
-                // If the request should be forwarded, send to both the
-                // default execution client and the builder
-                let method_clone = method.clone();
-                let buffered_clone = buffered.clone();
-                let mut builder_client = service.builder_client.clone();
-                
-                let g_method_clone = method.clone();
-                let g_buffered_clone = buffered.clone();
-                let mut guarantor_client = service.guarantor_client.clone();
-
-                tracing::info!("method = {:?}", &g_method_clone);
-
-                // Fire and forget the builder request
-                tokio::spawn(async move {
-                    let _ = builder_client.forward(buffered_clone, method_clone).await;
-
-                });
-                if "eth_sendRawTransaction" == g_method_clone {
-                    tokio::spawn(async move {
-                        let body_bytes = g_buffered_clone.body().clone();
-                        tracing::info!("request = {:?}", &body_bytes);
-                        
-                        let resp = guarantor_client.forward(g_buffered_clone, g_method_clone).await;
-                        
-                        tracing::info!("response = {:?}", &resp);
-
-                    });
-                }
-            }
-
             // Return the response from the L2 client
             service
                 .l2_client
