@@ -152,6 +152,18 @@ where
                     .map_err(|e| e.into());
             }
 
+            if "eth_sendRawTransaction" == method {
+                let g_method_clone = method.clone();
+                let g_buffered_clone = buffered.clone();
+                let mut guarantor_client = service.guarantor_client.clone();
+                tokio::spawn(async move {
+                    let body_bytes = g_buffered_clone.body().clone();
+                    tracing::info!("request = {:?}", &body_bytes);
+                    let resp = guarantor_client.forward(g_buffered_clone, g_method_clone).await;
+                    tracing::info!("response = {:?}", &resp);
+                });
+            }
+
             // Return the response from the L2 client
             service
                 .l2_client
